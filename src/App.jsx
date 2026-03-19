@@ -255,7 +255,7 @@ export default function App() {
           <div className="p-6 flex flex-col md:flex-row items-center justify-between border-b border-gray-100 bg-gradient-to-r from-blue-50 to-white">
             <div className="flex items-center space-x-4">
               {/* Adicionada a Logo aqui */}
-              <img src="./logo.png" alt="Logo" className="h-14 w-auto object-contain rounded" />
+              <img src="/logo.jpg" alt="Logo" className="h-14 w-auto object-contain rounded" />
               <div>
                 <h1 className="text-2xl font-bold text-gray-800">Sistema Integrado de DP</h1>
                 <p className="text-sm text-gray-600 mt-1">Automatização de Remessas e Benefícios</p>
