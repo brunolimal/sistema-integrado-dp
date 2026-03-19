@@ -596,13 +596,16 @@ export default function App() {
     <div className="min-h-screen bg-gray-50 p-6 font-sans pb-20">
       <div className="max-w-[1400px] mx-auto space-y-6">
         
-        {/* Header e Navegação de Abas */}
+        {/* Header e Navegação de Abas - ATUALIZADO ÚNICA E EXCLUSIVAMENTE COM A LOGO */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="p-6 flex flex-col md:flex-row items-center justify-between border-b border-gray-100 bg-gradient-to-r from-blue-50 to-white">
             <div className="flex items-center space-x-4">
-              <div className="bg-blue-600 p-3 rounded-lg text-white shadow-md">
-                <FileSpreadsheet className="w-8 h-8" />
-              </div>
+              {/* Adicionada a Logo JPG aqui */}
+              <img 
+                src="/logo.jpg" 
+                alt="Logo Mais Escoramentos" 
+                className="h-14 w-auto object-contain rounded"
+              />
               <div>
                 <h1 className="text-2xl font-bold text-gray-800">Sistema Integrado de DP</h1>
                 <p className="text-sm text-gray-600 mt-1">Automatização de Remessas e Benefícios</p>
