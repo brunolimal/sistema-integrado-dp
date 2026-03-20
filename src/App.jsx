@@ -1,6 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Upload, Download, AlertTriangle, FileSpreadsheet, CheckCircle, ArrowRight, FileText, CalendarDays, Calculator, Bus, Coffee, Users, PieChart, Plus, Trash2, Clock, RotateCcw, Save } from 'lucide-react';
 
+// Importação da sua configuração do Firebase
+import { db } from './firebase'; 
+import { doc, getDoc, setDoc } from "firebase/firestore";
+
 // ================= COMPONENTE DE INPUT MONETÁRIO INTELIGENTE =================
 const CurrencyInput = ({ value, onChange, className, placeholder }) => {
   const formatVal = (v) => {
@@ -60,47 +64,73 @@ export default function App() {
   // Abas
   const [activeTab, setActiveTab] = useState('colaboradores');
 
-  // ================= ESTADOS COM AUTO-SAVE (LOCAL STORAGE) =================
-  const [colaboradores, setColaboradores] = useState(() => {
-    const saved = localStorage.getItem('dp_colaboradores');
-    return saved ? JSON.parse(saved) : [];
-  });
+  // ================= ESTADOS DO SISTEMA =================
+  const [colaboradores, setColaboradores] = useState([]);
+  const [salarioData, setSalarioData] = useState([]);
+  const [paymentType, setPaymentType] = useState('1');
+  const [periodo, setPeriodo] = useState({ start: '', end: '', feriados: 0 });
+  const [valorVRDiario, setValorVRDiario] = useState('');
+  const [beneficiosData, setBeneficiosData] = useState([]);
+  const [beneficiosOverrides, setBeneficiosOverrides] = useState({});
+  const [historico, setHistorico] = useState([]);
+  
+  // Controle de carregamento inicial para não sobrescrever o banco vazio
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
 
-  const [salarioData, setSalarioData] = useState(() => {
-    const saved = localStorage.getItem('dp_salarioData');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [paymentType, setPaymentType] = useState(() => localStorage.getItem('dp_paymentType') || '1');
+  // ================= LÓGICA DE CARREGAMENTO (FIREBASE) =================
+  useEffect(() => {
+    const loadFromFirebase = async () => {
+      try {
+        const docRef = doc(db, "sistema_dp", "dados_gerais");
+        const docSnap = await getDoc(docRef);
 
-  const [periodo, setPeriodo] = useState(() => {
-    const saved = localStorage.getItem('dp_periodo');
-    return saved ? JSON.parse(saved) : { start: '', end: '', feriados: 0 };
-  });
-  const [valorVRDiario, setValorVRDiario] = useState(() => localStorage.getItem('dp_valorVRDiario') || '');
-  const [beneficiosData, setBeneficiosData] = useState(() => {
-    const saved = localStorage.getItem('dp_beneficiosData');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [beneficiosOverrides, setBeneficiosOverrides] = useState(() => {
-    const saved = localStorage.getItem('dp_beneficiosOverrides');
-    return saved ? JSON.parse(saved) : {};
-  });
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setColaboradores(data.colaboradores || []);
+          setSalarioData(data.salarioData || []);
+          setPaymentType(data.paymentType || '1');
+          setPeriodo(data.periodo || { start: '', end: '', feriados: 0 });
+          setValorVRDiario(data.valorVRDiario || '');
+          setBeneficiosData(data.beneficiosData || []);
+          setBeneficiosOverrides(data.beneficiosOverrides || {});
+          setHistorico(data.historico || []);
+        }
+      } catch (error) {
+        console.error("Erro ao carregar dados do Firebase:", error);
+      } finally {
+        setIsInitialLoad(false);
+      }
+    };
+    loadFromFirebase();
+  }, []);
 
-  const [historico, setHistorico] = useState(() => {
-    const saved = localStorage.getItem('dp_historico');
-    return saved ? JSON.parse(saved) : [];
-  });
+  // ================= LÓGICA DE SALVAMENTO AUTOMÁTICO (FIREBASE) =================
+  useEffect(() => {
+    if (isInitialLoad) return; 
 
-  useEffect(() => localStorage.setItem('dp_colaboradores', JSON.stringify(colaboradores)), [colaboradores]);
-  useEffect(() => localStorage.setItem('dp_salarioData', JSON.stringify(salarioData)), [salarioData]);
-  useEffect(() => localStorage.setItem('dp_paymentType', paymentType), [paymentType]);
-  useEffect(() => localStorage.setItem('dp_periodo', JSON.stringify(periodo)), [periodo]);
-  useEffect(() => localStorage.setItem('dp_valorVRDiario', valorVRDiario), [valorVRDiario]);
-  useEffect(() => localStorage.setItem('dp_beneficiosData', JSON.stringify(beneficiosData)), [beneficiosData]);
-  useEffect(() => localStorage.setItem('dp_beneficiosOverrides', JSON.stringify(beneficiosOverrides)), [beneficiosOverrides]);
-  useEffect(() => localStorage.setItem('dp_historico', JSON.stringify(historico)), [historico]);
+    const saveData = async () => {
+      try {
+        await setDoc(doc(db, "sistema_dp", "dados_gerais"), {
+          colaboradores,
+          salarioData,
+          paymentType,
+          periodo,
+          valorVRDiario,
+          beneficiosData,
+          beneficiosOverrides,
+          historico,
+          ultimaAtualizacao: new Date().toISOString()
+        });
+      } catch (error) {
+        console.error("Erro ao salvar no Firebase:", error);
+      }
+    };
 
-  // ================= OUTROS ESTADOS =================
+    const timeout = setTimeout(saveData, 1000);
+    return () => clearTimeout(timeout);
+  }, [colaboradores, salarioData, paymentType, periodo, valorVRDiario, beneficiosData, beneficiosOverrides, historico, isInitialLoad]);
+
+  // ================= OUTROS ESTADOS E REFERÊNCIAS =================
   const fileInputCadastro = useRef(null);
   const fileInputEspelho = useRef(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -439,7 +469,7 @@ export default function App() {
       
       return [
         item.matricula, 
-        item.nome.substring(0, 22), // Limitando o tamanho do nome para caber na folha
+        item.nome.substring(0, 22), 
         formatMoney(item.valorVT),
         item.ausencias > 0 ? `-${item.ausencias}` : '-', 
         item.descontoVT > 0 ? `-${item.descontoVT}` : '-',
@@ -549,7 +579,7 @@ export default function App() {
       erp[cc].salario += item.valor;
       erp[cc].headCount.add(item.matricula);
     });
-    const benData = activeTab === 'erp' || activeTab === 'beneficios' ? calcBeneficios() : [];
+    const benData = (activeTab === 'erp' || activeTab === 'beneficios') ? calcBeneficios() : [];
     benData.forEach(item => {
       if (item.totalGeral > 0) {
         const cc = item.centroCusto || 'GERAL';
@@ -563,9 +593,9 @@ export default function App() {
       centroCusto: cc, salario: erp[cc].salario, vt: erp[cc].vt, vr: erp[cc].vr, total: erp[cc].salario + erp[cc].vt + erp[cc].vr, vidas: erp[cc].headCount.size
     })).sort((a, b) => a.centroCusto.localeCompare(b.centroCusto));
   };
-  const erpResumo = getERPData();
 
   const exportERPPDF = () => {
+    const erpResumo = getERPData();
     if (erpResumo.length === 0 || !window.jspdf || !window.jspdf.jsPDF.API.autoTable) {
       return showAlert("Atenção", "Não há dados calculados para imprimir.");
     }
@@ -611,6 +641,7 @@ export default function App() {
   };
 
   const salvarFechamento = () => {
+    const erpResumo = getERPData();
     if (erpResumo.length === 0) {
       return showAlert("Atenção", "Não há dados calculados para salvar no histórico.");
     }
@@ -640,13 +671,13 @@ export default function App() {
     };
 
     setHistorico(prev => [novoRegistro, ...prev]);
-    showAlert("Sucesso", "Fechamento salvo no histórico! Você pode acessá-lo futuramente na aba 'Histórico'.");
+    showAlert("Sucesso", "Fechamento salvo no histórico!");
   };
 
   const restaurarHistorico = (registro) => {
     showConfirm(
       "Restaurar Fechamento",
-      `Isso irá substituir todos os dados atuais (Colaboradores, Salários e Benefícios) pelos dados do dia ${registro.dataHora}. Deseja continuar?`,
+      `Isso irá substituir os dados atuais pelos dados de ${registro.dataHora}. Continuar?`,
       () => {
         const snap = registro.snapshot;
         setColaboradores(snap.colaboradores || []);
@@ -656,9 +687,8 @@ export default function App() {
         setValorVRDiario(snap.valorVRDiario || '');
         setBeneficiosData(snap.beneficiosData || []);
         setBeneficiosOverrides(snap.beneficiosOverrides || {});
-        
         setActiveTab('erp');
-        showAlert("Restaurado", "Dados restaurados com sucesso! Você pode conferir os valores ou re-gerar os arquivos.");
+        showAlert("Restaurado", "Dados restaurados com sucesso!");
       }
     );
   };
@@ -666,19 +696,19 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 p-6 font-sans pb-20 relative">
       
-      {/* Sistema de Modal Customizado */}
+      {/* Sistema de Modal */}
       {modalConfig.isOpen && (
         <div className="fixed inset-0 bg-gray-900 bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 animate-fade-in border border-gray-100">
+          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 border border-gray-100">
             <h3 className="text-lg font-bold text-gray-900 mb-2">{modalConfig.title}</h3>
             <p className="text-gray-600 mb-6 text-sm leading-relaxed">{modalConfig.message}</p>
             <div className="flex justify-end space-x-3">
               {modalConfig.type === 'confirm' && (
-                <button onClick={closeModal} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition-colors text-sm">
+                <button onClick={closeModal} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium text-sm">
                   Cancelar
                 </button>
               )}
-              <button onClick={() => { if (modalConfig.onConfirm) modalConfig.onConfirm(); closeModal(); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors text-sm">
+              <button onClick={() => { if (modalConfig.onConfirm) modalConfig.onConfirm(); closeModal(); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm">
                 {modalConfig.type === 'confirm' ? 'Confirmar' : 'Entendi'}
               </button>
             </div>
@@ -688,32 +718,32 @@ export default function App() {
 
       <div className="max-w-[1400px] mx-auto space-y-6">
         
-        {/* Header e Navegação de Abas */}
+        {/* Header e Navegação */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="p-6 flex flex-col md:flex-row items-center justify-between border-b border-gray-100 bg-gradient-to-r from-blue-50 to-white">
             <div className="flex items-center space-x-4">
               <div className="bg-blue-600 p-3 rounded-lg text-white shadow-md"><FileSpreadsheet className="w-8 h-8" /></div>
               <div>
-                <h1 className="text-2xl font-bold text-gray-800">Sistema Integrado de DP</h1>
-                <p className="text-sm text-gray-600 mt-1">Colaboradores, Remessas, Benefícios, ERP e Histórico</p>
+                <h1 className="text-2xl font-bold text-gray-800">Sistema Integrado de DP - Mais Escoramentos</h1>
+                <p className="text-sm text-gray-600 mt-1">Colaboradores, Remessas, Benefícios e ERP</p>
               </div>
             </div>
           </div>
           
           <div className="flex flex-wrap border-b border-gray-200">
-            <button onClick={() => setActiveTab('colaboradores')} className={`flex-1 py-4 px-4 text-sm font-bold tracking-wide transition-colors flex justify-center items-center space-x-2 ${activeTab === 'colaboradores' ? 'text-blue-700 bg-blue-50 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}>
+            <button onClick={() => setActiveTab('colaboradores')} className={`flex-1 py-4 px-4 text-sm font-bold transition-colors flex justify-center items-center space-x-2 ${activeTab === 'colaboradores' ? 'text-blue-700 bg-blue-50 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}>
               <Users className="w-5 h-5" /><span>Base Local</span>
             </button>
-            <button onClick={() => setActiveTab('salario')} className={`flex-1 py-4 px-4 text-sm font-bold tracking-wide transition-colors flex justify-center items-center space-x-2 ${activeTab === 'salario' ? 'text-blue-700 bg-blue-50 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}>
+            <button onClick={() => setActiveTab('salario')} className={`flex-1 py-4 px-4 text-sm font-bold transition-colors flex justify-center items-center space-x-2 ${activeTab === 'salario' ? 'text-blue-700 bg-blue-50 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}>
               <Calculator className="w-5 h-5" /><span>Salário / Adiant.</span>
             </button>
-            <button onClick={() => setActiveTab('beneficios')} className={`flex-1 py-4 px-4 text-sm font-bold tracking-wide transition-colors flex justify-center items-center space-x-2 ${activeTab === 'beneficios' ? 'text-blue-700 bg-blue-50 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}>
+            <button onClick={() => setActiveTab('beneficios')} className={`flex-1 py-4 px-4 text-sm font-bold transition-colors flex justify-center items-center space-x-2 ${activeTab === 'beneficios' ? 'text-blue-700 bg-blue-50 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}>
               <div className="flex items-center space-x-1"><Bus className="w-5 h-5" /><Coffee className="w-5 h-5" /></div><span>VT e VR</span>
             </button>
-            <button onClick={() => setActiveTab('erp')} className={`flex-1 py-4 px-4 text-sm font-bold tracking-wide transition-colors flex justify-center items-center space-x-2 ${activeTab === 'erp' ? 'text-blue-700 bg-blue-50 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}>
+            <button onClick={() => setActiveTab('erp')} className={`flex-1 py-4 px-4 text-sm font-bold transition-colors flex justify-center items-center space-x-2 ${activeTab === 'erp' ? 'text-blue-700 bg-blue-50 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}>
               <PieChart className="w-5 h-5" /><span>Resumo ERP</span>
             </button>
-            <button onClick={() => setActiveTab('historico')} className={`flex-1 py-4 px-4 text-sm font-bold tracking-wide transition-colors flex justify-center items-center space-x-2 ${activeTab === 'historico' ? 'text-blue-700 bg-blue-50 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}>
+            <button onClick={() => setActiveTab('historico')} className={`flex-1 py-4 px-4 text-sm font-bold transition-colors flex justify-center items-center space-x-2 ${activeTab === 'historico' ? 'text-blue-700 bg-blue-50 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}>
               <Clock className="w-5 h-5" /><span>Histórico</span>
             </button>
           </div>
@@ -721,12 +751,12 @@ export default function App() {
 
         {/* ================= ABA 1: COLABORADORES ================= */}
         {activeTab === 'colaboradores' && (
-          <div className="space-y-6 animate-fade-in">
+          <div className="space-y-6">
             <div className="flex flex-col md:flex-row gap-4">
               <div className="flex-1 bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-semibold text-gray-800">Importar Planilha Simplificada</h2>
-                  <p className="text-sm text-gray-500 mt-1">Matrícula, Nome, CPF, Banco, Agência, Conta, Valor VT, Centro de Custo.</p>
+                  <p className="text-sm text-gray-500 mt-1">Colunas: Matrícula, Nome, CPF, Banco, Agência, Conta, Valor VT, Centro de Custo.</p>
                 </div>
                 <div className="flex flex-col space-y-2 items-end">
                   <input type="file" accept=".xlsx, .xls" className="hidden" ref={fileInputCadastro} onChange={handleImportColaboradores} />
@@ -746,15 +776,15 @@ export default function App() {
             </div>
 
             {showAddForm && (
-              <div className="bg-blue-50 p-6 rounded-xl border border-blue-100 shadow-inner">
+              <div className="bg-blue-50 p-6 rounded-xl border border-blue-100">
                 <form onSubmit={handleSaveColaborador} className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <input required placeholder="Matrícula *" value={formData.matricula} onChange={e => setFormData({...formData, matricula: e.target.value})} className="border p-2 rounded" />
                   <input required placeholder="Nome Completo *" value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} className="border p-2 rounded col-span-2" />
                   <input placeholder="CPF (Apenas números)" value={formData.cpf} onChange={e => setFormData({...formData, cpf: e.target.value})} className="border p-2 rounded" />
                   <input placeholder="Banco (Nome ou Cód)" value={formData.banco} onChange={e => setFormData({...formData, banco: e.target.value})} className="border p-2 rounded" />
                   <input placeholder="Agência" value={formData.agencia} onChange={e => setFormData({...formData, agencia: e.target.value})} className="border p-2 rounded" />
-                  <input placeholder="Conta (com dígito ex: 123-4)" value={formData.conta} onChange={e => setFormData({...formData, conta: e.target.value})} className="border p-2 rounded" />
-                  <CurrencyInput placeholder="Valor VT Fixo (Ex: 10,50)" value={formData.valorVT} onChange={val => setFormData({...formData, valorVT: val})} className="border p-2 rounded" />
+                  <input placeholder="Conta (Ex: 12345-6)" value={formData.conta} onChange={e => setFormData({...formData, conta: e.target.value})} className="border p-2 rounded" />
+                  <CurrencyInput placeholder="Valor VT Fixo" value={formData.valorVT} onChange={val => setFormData({...formData, valorVT: val})} className="border p-2 rounded" />
                   <input placeholder="Centro de Custo" value={formData.centroCusto} onChange={e => setFormData({...formData, centroCusto: e.target.value.toUpperCase()})} className="border p-2 rounded col-span-2" />
                   <button type="submit" className="bg-green-600 text-white font-bold rounded py-2 hover:bg-green-700">Salvar Dados</button>
                 </form>
@@ -763,10 +793,8 @@ export default function App() {
 
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-bold text-gray-800">Banco de Dados Local ({colaboradores.length} pessoas)</h3>
-                <button onClick={() => showConfirm("Limpar Base", "Tem certeza que deseja limpar toda a base? Essa ação não pode ser desfeita.", () => setColaboradores([]))} className="text-red-500 text-sm font-medium hover:underline">
-                  Limpar Base
-                </button>
+                <h3 className="text-lg font-bold text-gray-800">Banco de Dados Cloud ({colaboradores.length} pessoas)</h3>
+                <button onClick={() => showConfirm("Limpar Base", "Deseja limpar toda a base?", () => setColaboradores([]))} className="text-red-500 text-sm font-medium hover:underline">Limpar Base</button>
               </div>
               <div className="overflow-x-auto max-h-[500px] border rounded-lg">
                 <table className="w-full text-sm text-left">
@@ -779,7 +807,7 @@ export default function App() {
                         <td className="p-3 font-mono">{c.matricula}</td><td className="p-3 font-medium">{c.nome}</td><td className="p-3 text-xs">{c.centroCusto}</td>
                         <td className="p-3 text-xs text-gray-500">{c.banco} | Ag: {c.agencia} | CC: {c.conta}</td>
                         <td className="p-3 font-semibold text-blue-600">{c.valorVT ? `R$ ${formatMoney(c.valorVT)}` : '-'}</td>
-                        <td className="p-3"><button onClick={() => removerColaborador(c.matricula)} className="text-red-500 hover:text-red-700 p-1" title="Excluir Colaborador"><Trash2 className="w-4 h-4" /></button></td>
+                        <td className="p-3"><button onClick={() => removerColaborador(c.matricula)} className="text-red-500 hover:text-red-700"><Trash2 className="w-4 h-4" /></button></td>
                       </tr>
                     ))}
                   </tbody>
@@ -791,26 +819,20 @@ export default function App() {
 
         {/* ================= ABA 2: SALÁRIO ================= */}
         {activeTab === 'salario' && (
-          <div className="max-w-6xl mx-auto space-y-6 animate-fade-in">
+          <div className="max-w-6xl mx-auto space-y-6">
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center justify-center text-center">
               <div className={`p-4 rounded-full mb-4 ${espelhoFile ? 'bg-green-100' : 'bg-blue-50'}`}>
                 {espelhoFile ? <CheckCircle className="w-8 h-8 text-green-600" /> : <FileText className="w-8 h-8 text-blue-600" />}
               </div>
               <h2 className="text-lg font-semibold text-gray-800">1. Espelho de Salário (PDF)</h2>
-              <p className="text-xs text-gray-500 mt-2 mb-4">O sistema usará a base local de Colaboradores para cruzar as matrículas.</p>
               <input type="file" accept=".pdf" className="hidden" ref={fileInputEspelho} onChange={(e) => setEspelhoFile(e.target.files[0])} />
-              <button onClick={() => fileInputEspelho.current.click()} className="px-6 py-2 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100">
+              <button onClick={() => fileInputEspelho.current.click()} className="px-6 py-2 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-lg">
                 {espelhoFile ? espelhoFile.name : 'Selecionar Arquivo PDF'}
               </button>
             </div>
 
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center justify-center space-y-4">
-              <div className="flex justify-between w-full max-w-lg items-center">
-                <h3 className="text-lg font-semibold text-gray-800">2. Tipo de Pagamento</h3>
-                {salarioData.length > 0 && (
-                  <button onClick={() => showConfirm("Limpar Lançamentos", "Deseja remover os dados processados da tela de salário?", () => {setSalarioData([]); setEspelhoFile(null);})} className="text-xs text-red-500 hover:underline flex items-center"><RotateCcw className="w-3 h-3 mr-1"/> Limpar Tela</button>
-                )}
-              </div>
+              <h3 className="text-lg font-semibold text-gray-800">2. Tipo de Pagamento</h3>
               <div className="flex space-x-6">
                 <label className="flex items-center space-x-2 cursor-pointer">
                   <input type="radio" value="1" checked={paymentType === '1'} onChange={(e) => setPaymentType(e.target.value)} className="w-5 h-5 text-blue-600" />
@@ -824,54 +846,34 @@ export default function App() {
             </div>
 
             <div className="flex justify-center">
-              <button onClick={processarSalario} disabled={!espelhoFile || isProcessingSalario || !isReady} className="flex items-center space-x-2 px-8 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow hover:bg-blue-700 disabled:opacity-50">
-                {isProcessingSalario ? <span>Processando...</span> : !isReady ? <span>Carregando dependências...</span> : <><span>Processar Remessa Bancária</span><ArrowRight className="w-5 h-5" /></>}
+              <button onClick={processarSalario} disabled={!espelhoFile || isProcessingSalario || !isReady} className="flex items-center space-x-2 px-8 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow disabled:opacity-50">
+                {isProcessingSalario ? <span>Processando...</span> : <span>Processar Remessa Bancária</span>}
               </button>
             </div>
 
-            {(salarioData.length > 0 || errorsSalario.length > 0) && (
+            {salarioData.length > 0 && (
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                {errorsSalario.length > 0 && (
-                  <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-lg text-sm text-orange-800">
-                    <AlertTriangle className="w-5 h-5 inline mr-2" /><strong>Avisos ({errorsSalario.length})</strong>
-                    <ul className="list-disc pl-5 mt-2 max-h-40 overflow-y-auto">{errorsSalario.map((err, i) => <li key={i}>{err}</li>)}</ul>
+                  <div className="flex justify-between items-center mb-4">
+                    <p className="font-semibold">{salarioData.length} processados.</p>
+                    <button onClick={exportarArquivoBancoSalario} className="px-4 py-2 bg-green-600 text-white rounded-lg flex items-center space-x-2"><Download className="w-4 h-4"/><span>Baixar XLSX Banco</span></button>
                   </div>
-                )}
-                {salarioData.length > 0 && (() => {
-                  const totalSalario = salarioData.reduce((acc, row) => acc + (row.valor || 0), 0);
-                  return (
-                    <div>
-                      <div className="flex justify-between items-center mb-4">
-                        <p className="font-semibold">{salarioData.length} processados.</p>
-                        <button onClick={exportarArquivoBancoSalario} className="px-4 py-2 bg-green-600 text-white rounded-lg flex items-center space-x-2"><Download className="w-4 h-4"/><span>Baixar XLSX Banco</span></button>
-                      </div>
-                      <div className="overflow-x-auto max-h-[400px] border rounded-lg">
-                        <table className="w-full text-sm text-left">
-                          <thead className="bg-gray-50 text-xs uppercase sticky top-0">
-                            <tr><th>Agência</th><th>Conta-Dig</th><th>Nome</th><th>CPF</th><th>Cód</th><th>C. Custo</th><th className="text-right">Valor</th></tr>
-                          </thead>
-                          <tbody>
-                            {salarioData.map((row, i) => (
-                              <tr key={i} className="border-b">
-                                <td className="px-2 py-1">{row.agencia}</td><td className="px-2 py-1">{row.conta}-{row.digito}</td>
-                                <td className="px-2 py-1">{row.nome}</td><td className="px-2 py-1">{row.cpf}</td>
-                                <td className="px-2 py-1 text-center font-bold text-blue-600">{row.bancoCode}</td>
-                                <td className="px-2 py-1 text-xs text-gray-500">{row.centroCusto}</td>
-                                <td className="px-2 py-1 text-right text-green-700 font-bold whitespace-nowrap">R$ {formatMoney(row.valor)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                          <tfoot className="bg-gray-100 text-xs uppercase font-bold sticky bottom-0 border-t-2 border-gray-300 shadow-[0_-2px_4px_rgba(0,0,0,0.05)]">
-                            <tr>
-                              <td colSpan="6" className="px-2 py-3 text-right text-gray-700">Total da Folha:</td>
-                              <td className="px-2 py-3 text-right text-green-800 whitespace-nowrap">R$ {formatMoney(totalSalario)}</td>
-                            </tr>
-                          </tfoot>
-                        </table>
-                      </div>
-                    </div>
-                  );
-                })()}
+                  <div className="overflow-x-auto max-h-[400px] border rounded-lg">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-gray-50 text-xs uppercase sticky top-0">
+                        <tr><th>Agência</th><th>Conta-Dig</th><th>Nome</th><th>Cód</th><th>C. Custo</th><th className="text-right">Valor</th></tr>
+                      </thead>
+                      <tbody>
+                        {salarioData.map((row, i) => (
+                          <tr key={i} className="border-b">
+                            <td className="px-2 py-1">{row.agencia}</td><td className="px-2 py-1">{row.conta}-{row.digito}</td>
+                            <td className="px-2 py-1">{row.nome}</td><td className="px-2 py-1 text-center font-bold text-blue-600">{row.bancoCode}</td>
+                            <td className="px-2 py-1 text-xs text-gray-500">{row.centroCusto}</td>
+                            <td className="px-2 py-1 text-right text-green-700 font-bold whitespace-nowrap">R$ {formatMoney(row.valor)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
               </div>
             )}
           </div>
@@ -879,163 +881,113 @@ export default function App() {
 
         {/* ================= ABA 3: BENEFÍCIOS (VT/VR) ================= */}
         {activeTab === 'beneficios' && (
-          <div className="space-y-6 animate-fade-in w-full">
+          <div className="space-y-6 w-full">
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 max-w-6xl mx-auto">
               <h2 className="text-lg font-semibold text-gray-800 mb-4"><CalendarDays className="w-5 h-5 inline mr-2 text-blue-600" />Parâmetros do Período</h2>
               <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
-                <div><label className="text-sm">Data Inicial</label><input type="date" value={periodo.start} onChange={e => setPeriodo({...periodo, start: e.target.value})} className="w-full border p-2 rounded focus:ring-blue-500"/></div>
-                <div><label className="text-sm">Data Final</label><input type="date" value={periodo.end} onChange={e => setPeriodo({...periodo, end: e.target.value})} className="w-full border p-2 rounded focus:ring-blue-500"/></div>
-                <div><label className="text-sm">Feriados</label><input type="number" min="0" value={periodo.feriados} onChange={e => setPeriodo({...periodo, feriados: e.target.value})} className="w-full border p-2 rounded focus:ring-blue-500"/></div>
+                <div><label className="text-sm">Início</label><input type="date" value={periodo.start} onChange={e => setPeriodo({...periodo, start: e.target.value})} className="w-full border p-2 rounded"/></div>
+                <div><label className="text-sm">Fim</label><input type="date" value={periodo.end} onChange={e => setPeriodo({...periodo, end: e.target.value})} className="w-full border p-2 rounded"/></div>
+                <div><label className="text-sm">Feriados</label><input type="number" min="0" value={periodo.feriados} onChange={e => setPeriodo({...periodo, feriados: e.target.value})} className="w-full border p-2 rounded"/></div>
                 <div><label className="text-sm">Valor Diário VR</label><CurrencyInput value={valorVRDiario} onChange={setValorVRDiario} className="w-full border p-2 rounded bg-blue-50 font-bold"/></div>
-                <div className="bg-blue-100 rounded p-2 text-center h-full flex flex-col justify-center"><span className="text-xs uppercase">Dias Úteis</span><span className="text-2xl font-bold text-blue-800">{diasUteisBase}</span></div>
+                <div className="bg-blue-100 rounded p-2 text-center flex flex-col justify-center"><span className="text-xs uppercase">Dias Úteis</span><span className="text-2xl font-bold text-blue-800">{diasUteisBase}</span></div>
               </div>
             </div>
 
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-lg font-semibold flex items-center">
-                  Lançamentos Individuais
-                  {beneficiosData.length > 0 && (
-                    <button onClick={limparMesBeneficios} className="ml-4 text-xs font-normal text-red-500 hover:underline flex items-center"><RotateCcw className="w-3 h-3 mr-1"/> Limpar Dados</button>
-                  )}
-                </h2>
+                <h2 className="text-lg font-semibold">Lançamentos Individuais</h2>
                 <div className="flex space-x-2">
-                  <button onClick={carregarColaboradoresBeneficios} className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200">Carregar Base de Colaboradores</button>
+                  <button onClick={carregarColaboradoresBeneficios} className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200">Atualizar Lista da Base</button>
                   {beneficiosData.length > 0 && (
                     <>
-                      <button onClick={exportBeneficiosBasePDF} className="px-3 py-2 bg-gray-600 text-white text-sm rounded-lg hover:bg-gray-700 flex items-center space-x-1"><FileText className="w-4 h-4" /><span>Relatório em PDF</span></button>
-                      <button onClick={exportVTBankFile} className="px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 flex items-center space-x-1"><Download className="w-4 h-4" /><span>Arquivo Itaú VT</span></button>
-                      <button onClick={generateReceiptsPDF} className="px-3 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 flex items-center space-x-1"><FileText className="w-4 h-4" /><span>Recibos Indiv.</span></button>
+                      <button onClick={exportBeneficiosBasePDF} className="px-3 py-2 bg-gray-600 text-white text-sm rounded-lg">Relatório PDF</button>
+                      <button onClick={exportVTBankFile} className="px-3 py-2 bg-green-600 text-white text-sm rounded-lg">Arquivo Banco VT</button>
+                      <button onClick={generateReceiptsPDF} className="px-3 py-2 bg-red-600 text-white text-sm rounded-lg">Recibos Indiv.</button>
                     </>
                   )}
                 </div>
               </div>
 
-              {beneficiosData.length > 0 && (() => {
-                const listaCalculada = calcBeneficios();
-                const somaVT = listaCalculada.reduce((acc, c) => acc + c.totalVT, 0);
-                const somaVR = listaCalculada.reduce((acc, c) => acc + c.totalVRLiquido, 0);
-                const somaGeral = listaCalculada.reduce((acc, c) => acc + c.totalGeral, 0);
-
-                return (
+              {beneficiosData.length > 0 && (
                   <div className="overflow-x-auto border border-gray-200 rounded-lg max-h-[600px]">
-                    <table className="w-full text-sm text-left whitespace-nowrap">
-                      <thead className="text-[10px] text-gray-700 uppercase bg-gray-100 border-b sticky top-0 z-10">
+                    <table className="w-full text-sm text-left">
+                      <thead className="text-[10px] text-gray-700 uppercase bg-gray-100 sticky top-0 z-10">
                         <tr>
-                          <th className="px-2 py-3">Matr. / Nome</th>
+                          <th className="px-2 py-3">Colaborador</th>
                           <th className="px-2 py-3 text-center">VT Diário</th>
-                          <th className="px-2 py-3 text-center text-red-600 bg-red-50/50">Faltas<br/>(Abate ambos)</th>
-                          <th className="px-1 py-3 text-center text-orange-600">- Desc<br/>VT</th>
-                          <th className="px-1 py-3 text-center text-orange-600">- Desc<br/>VR</th>
-                          <th className="px-1 py-3 text-center text-green-600">+ Acrés<br/>VT</th>
-                          <th className="px-1 py-3 text-center text-green-600">+ Acrés<br/>VR</th>
+                          <th className="px-2 py-3 text-center bg-red-50">Faltas</th>
+                          <th className="px-1 py-3 text-center">- Desc VT</th>
+                          <th className="px-1 py-3 text-center">- Desc VR</th>
+                          <th className="px-1 py-3 text-center">+ Acrés VT</th>
+                          <th className="px-1 py-3 text-center">+ Acrés VR</th>
                           <th className="px-2 py-3 text-right">Tot. VT</th>
-                          <th className="px-2 py-3 text-right">Tot. VR Líq</th>
                           <th className="px-2 py-3 text-right font-bold">Total Geral</th>
                           <th className="px-2 py-3">Obs</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {listaCalculada.map((c, i) => (
+                        {calcBeneficios().map((c, i) => (
                           <tr key={i} className="bg-white border-b hover:bg-blue-50">
                             <td className="px-2 py-2">
-                              <span className="font-mono text-gray-500 text-xs">{c.matricula}</span><br/>
-                              <span className="font-medium text-gray-900" title={c.nome}>{c.nome.substring(0,25)}</span>
+                              <span className="font-mono text-gray-500 text-[10px]">{c.matricula}</span><br/>
+                              <span className="font-medium text-gray-900">{c.nome.substring(0,25)}</span>
                             </td>
                             <td className="px-2 py-2">
-                              <CurrencyInput value={beneficiosOverrides[c.matricula]?.valorVT ?? ''} onChange={(val) => updateOverride(c.matricula, 'valorVT', val)} className="w-24 text-center border rounded p-1 text-xs font-bold text-blue-700 bg-transparent" />
+                              <CurrencyInput value={beneficiosOverrides[c.matricula]?.valorVT ?? ''} onChange={(val) => updateOverride(c.matricula, 'valorVT', val)} className="w-24 text-center border rounded p-1 text-xs font-bold text-blue-700" />
                             </td>
                             <td className="px-2 py-2 bg-red-50/20 text-center">
-                              <input type="number" min="0" value={beneficiosOverrides[c.matricula]?.ausencias ?? ''} onChange={(e) => updateOverride(c.matricula, 'ausencias', e.target.value)} className="w-12 text-center border border-red-200 rounded p-1 text-xs text-red-700" />
+                              <input type="number" min="0" value={beneficiosOverrides[c.matricula]?.ausencias ?? ''} onChange={(e) => updateOverride(c.matricula, 'ausencias', e.target.value)} className="w-12 text-center border rounded p-1 text-xs" />
                             </td>
                             <td className="px-1 py-2 text-center">
-                              <input type="number" min="0" value={beneficiosOverrides[c.matricula]?.descontoVT ?? ''} onChange={(e) => updateOverride(c.matricula, 'descontoVT', e.target.value)} className="w-10 text-center border rounded p-1 text-xs text-orange-600" />
+                              <input type="number" min="0" value={beneficiosOverrides[c.matricula]?.descontoVT ?? ''} onChange={(e) => updateOverride(c.matricula, 'descontoVT', e.target.value)} className="w-10 text-center border rounded p-1 text-xs" />
                             </td>
                             <td className="px-1 py-2 text-center">
-                              <input type="number" min="0" value={beneficiosOverrides[c.matricula]?.descontoVR ?? ''} onChange={(e) => updateOverride(c.matricula, 'descontoVR', e.target.value)} className="w-10 text-center border rounded p-1 text-xs text-orange-600" />
+                              <input type="number" min="0" value={beneficiosOverrides[c.matricula]?.descontoVR ?? ''} onChange={(e) => updateOverride(c.matricula, 'descontoVR', e.target.value)} className="w-10 text-center border rounded p-1 text-xs" />
                             </td>
                             <td className="px-1 py-2 text-center">
-                              <input type="number" min="0" value={beneficiosOverrides[c.matricula]?.acrescimosVT ?? ''} onChange={(e) => updateOverride(c.matricula, 'acrescimosVT', e.target.value)} className="w-10 text-center border rounded p-1 text-xs text-green-700" />
+                              <input type="number" min="0" value={beneficiosOverrides[c.matricula]?.acrescimosVT ?? ''} onChange={(e) => updateOverride(c.matricula, 'acrescimosVT', e.target.value)} className="w-10 text-center border rounded p-1 text-xs" />
                             </td>
                             <td className="px-1 py-2 text-center">
-                              <input type="number" min="0" value={beneficiosOverrides[c.matricula]?.acrescimosVR ?? ''} onChange={(e) => updateOverride(c.matricula, 'acrescimosVR', e.target.value)} className="w-10 text-center border rounded p-1 text-xs text-green-700" />
+                              <input type="number" min="0" value={beneficiosOverrides[c.matricula]?.acrescimosVR ?? ''} onChange={(e) => updateOverride(c.matricula, 'acrescimosVR', e.target.value)} className="w-10 text-center border rounded p-1 text-xs" />
                             </td>
-                            <td className="px-2 py-2 text-right text-blue-700 font-semibold whitespace-nowrap">R$ {formatMoney(c.totalVT)}</td>
-                            <td className="px-2 py-2 text-right text-blue-700 font-semibold whitespace-nowrap">R$ {formatMoney(c.totalVRLiquido)}</td>
-                            <td className="px-2 py-2 text-right bg-green-50/50 font-bold text-green-700 whitespace-nowrap">R$ {formatMoney(c.totalGeral)}</td>
+                            <td className="px-2 py-2 text-right text-blue-700 whitespace-nowrap">R$ {formatMoney(c.totalVT)}</td>
+                            <td className="px-2 py-2 text-right bg-green-50 font-bold text-green-700 whitespace-nowrap">R$ {formatMoney(c.totalGeral)}</td>
                             <td className="px-2 py-2">
                               <input type="text" value={beneficiosOverrides[c.matricula]?.obs || ''} onChange={(e) => updateOverride(c.matricula, 'obs', e.target.value)} className="w-full border rounded p-1 text-xs" placeholder="..." />
                             </td>
                           </tr>
                         ))}
                       </tbody>
-                      <tfoot className="bg-gray-100 text-[10px] uppercase font-bold sticky bottom-0 border-t-2 border-gray-300 z-10 shadow-[0_-2px_4px_rgba(0,0,0,0.05)]">
-                        <tr>
-                          <td colSpan="7" className="px-2 py-3 text-right text-gray-700 text-xs">Totais Gerais da Folha:</td>
-                          <td className="px-2 py-3 text-right text-blue-800 whitespace-nowrap text-xs">R$ {formatMoney(somaVT)}</td>
-                          <td className="px-2 py-3 text-right text-blue-800 whitespace-nowrap text-xs">R$ {formatMoney(somaVR)}</td>
-                          <td className="px-2 py-3 text-right bg-green-200 text-green-800 whitespace-nowrap text-xs">R$ {formatMoney(somaGeral)}</td>
-                          <td className="px-2 py-3"></td>
-                        </tr>
-                      </tfoot>
                     </table>
                   </div>
-                );
-              })()}
+              )}
             </div>
           </div>
         )}
 
-        {/* ================= ABA 4: DASHBOARD ERP E FECHAMENTO ================= */}
+        {/* ================= ABA 4: ERP ================= */}
         {activeTab === 'erp' && (() => {
           const erpResumo = getERPData();
-          const totalSalarioERP = erpResumo.reduce((acc, curr) => acc + curr.salario, 0);
-          const totalVtERP = erpResumo.reduce((acc, curr) => acc + curr.vt, 0);
-          const totalVrERP = erpResumo.reduce((acc, curr) => acc + curr.vr, 0);
           const totalGeralERP = erpResumo.reduce((acc, curr) => acc + curr.total, 0);
 
           return (
-            <div className="space-y-6 animate-fade-in w-full max-w-6xl mx-auto">
-              <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 relative">
-                <div className="absolute top-6 right-6 flex space-x-3">
-                  <button onClick={exportERPPDF} className="flex items-center space-x-2 px-5 py-2.5 bg-blue-600 text-white font-bold rounded-lg shadow-lg hover:bg-blue-700 transition-colors text-sm">
-                    <FileText className="w-5 h-5"/><span>Imprimir PDF</span>
-                  </button>
-                  <button onClick={salvarFechamento} className="flex items-center space-x-2 px-5 py-2.5 bg-green-600 text-white font-bold rounded-lg shadow-lg hover:bg-green-700 transition-colors text-sm">
-                    <Save className="w-5 h-5"/><span>Salvar Fechamento no Histórico</span>
-                  </button>
+            <div className="space-y-6 max-w-6xl mx-auto">
+              <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-800">Resumo Gerencial</h2>
+                  <p className="text-gray-500 mt-2">Valores por Centro de Custo.</p>
                 </div>
-                <div className="text-center mt-4">
-                  <PieChart className="w-12 h-12 text-blue-600 mx-auto mb-4" />
-                  <h2 className="text-2xl font-bold text-gray-800">Resumo Gerencial por Centro de Custo</h2>
-                  <p className="text-gray-500 mt-2">Valores consolidados baseados no processamento da aba Salário e aba Benefícios.</p>
+                <div className="flex space-x-3">
+                  <button onClick={exportERPPDF} className="px-5 py-2.5 bg-blue-600 text-white font-bold rounded-lg shadow hover:bg-blue-700 text-sm">Imprimir PDF</button>
+                  <button onClick={salvarFechamento} className="px-5 py-2.5 bg-green-600 text-white font-bold rounded-lg shadow hover:bg-green-700 text-sm">Salvar no Histórico</button>
                 </div>
               </div>
 
-              {erpResumo.length === 0 ? (
-                <div className="text-center py-10 bg-gray-50 border border-dashed border-gray-300 rounded-lg">
-                  <p className="text-gray-500">Não há dados calculados no momento.</p>
-                  <p className="text-xs mt-1">Gere a remessa de Salário e/ou os controles de Benefícios primeiro.</p>
-                </div>
-              ) : (
+              {erpResumo.length > 0 && (
                 <>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-                      <p className="text-xs uppercase text-gray-500 font-bold">Total Salários/Adiant.</p>
-                      <p className="text-2xl font-bold text-gray-800 mt-1">R$ {formatMoney(totalSalarioERP)}</p>
-                    </div>
-                    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-                      <p className="text-xs uppercase text-gray-500 font-bold">Total VT (Benefícios)</p>
-                      <p className="text-2xl font-bold text-blue-700 mt-1">R$ {formatMoney(totalVtERP)}</p>
-                    </div>
-                    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-                      <p className="text-xs uppercase text-gray-500 font-bold">Total VR (Líq. Benefícios)</p>
-                      <p className="text-2xl font-bold text-blue-700 mt-1">R$ {formatMoney(totalVrERP)}</p>
-                    </div>
-                    <div className="bg-green-600 p-4 rounded-lg shadow-sm text-white">
-                      <p className="text-xs uppercase font-bold text-green-100">Despesa Geral da Folha</p>
-                      <p className="text-2xl font-bold mt-1">R$ {formatMoney(totalGeralERP)}</p>
-                    </div>
+                  <div className="bg-green-600 p-6 rounded-lg shadow text-white text-center">
+                    <p className="text-xs uppercase font-bold text-green-100">Despesa Geral da Folha</p>
+                    <p className="text-4xl font-bold mt-1">R$ {formatMoney(totalGeralERP)}</p>
                   </div>
 
                   <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
@@ -1043,21 +995,19 @@ export default function App() {
                       <thead className="bg-gray-100 text-gray-700 uppercase text-xs font-bold border-b">
                         <tr>
                           <th className="p-4">Centro de Custo</th>
-                          <th className="p-4 text-center">Quantidade de Colaboradores</th>
+                          <th className="p-4 text-center">Vidas</th>
                           <th className="p-4 text-right">Salário/Adiant.</th>
-                          <th className="p-4 text-right">Vale Transporte</th>
-                          <th className="p-4 text-right">Vale Refeição</th>
-                          <th className="p-4 text-right bg-green-50">Custo Total Setor</th>
+                          <th className="p-4 text-right">Benefícios (VT/VR)</th>
+                          <th className="p-4 text-right bg-green-50">Total Setor</th>
                         </tr>
                       </thead>
-                      <tbody className="text-sm">
+                      <tbody>
                         {erpResumo.map((row, i) => (
                           <tr key={i} className="border-b hover:bg-gray-50">
                             <td className="p-4 font-bold text-gray-800">{row.centroCusto}</td>
                             <td className="p-4 text-center text-gray-500">{row.vidas}</td>
-                            <td className="p-4 text-right font-medium text-gray-600">R$ {formatMoney(row.salario)}</td>
-                            <td className="p-4 text-right font-medium text-blue-600">R$ {formatMoney(row.vt)}</td>
-                            <td className="p-4 text-right font-medium text-blue-600">R$ {formatMoney(row.vr)}</td>
+                            <td className="p-4 text-right">R$ {formatMoney(row.salario)}</td>
+                            <td className="p-4 text-right">R$ {formatMoney(row.vt + row.vr)}</td>
                             <td className="p-4 text-right font-bold text-green-700 bg-green-50/30">R$ {formatMoney(row.total)}</td>
                           </tr>
                         ))}
@@ -1070,43 +1020,35 @@ export default function App() {
           );
         })()}
 
-        {/* ================= ABA 5: HISTÓRICO (MÁQUINA DO TEMPO) ================= */}
+        {/* ================= ABA 5: HISTÓRICO ================= */}
         {activeTab === 'historico' && (
-          <div className="space-y-6 animate-fade-in w-full max-w-6xl mx-auto">
+          <div className="space-y-6 max-w-6xl mx-auto">
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h2 className="text-lg font-bold text-gray-800 flex items-center"><Clock className="w-5 h-5 mr-2 text-blue-600"/> Fechamentos e Auditoria</h2>
-                  <p className="text-sm text-gray-500">Ao restaurar um fechamento, os dados atuais da tela serão substituídos permitindo emitir os relatórios novamente.</p>
-                </div>
-              </div>
-
+              <h2 className="text-lg font-bold text-gray-800 flex items-center mb-6"><Clock className="w-5 h-5 mr-2 text-blue-600"/> Fechamentos e Auditoria Cloud</h2>
+              
               {historico.length === 0 ? (
-                <div className="text-center py-10 bg-gray-50 border border-dashed border-gray-300 rounded-lg">
-                  <p className="text-gray-500">O histórico de fechamentos está vazio.</p>
-                  <p className="text-xs mt-1">Salve o seu primeiro fechamento na aba 'Resumo ERP'.</p>
+                <div className="text-center py-10 bg-gray-50 border border-dashed rounded-lg text-gray-500">
+                  Nenhum fechamento salvo no Firebase.
                 </div>
               ) : (
                 <div className="overflow-hidden border border-gray-200 rounded-lg">
                   <table className="w-full text-left text-sm">
                     <thead className="bg-gray-100 text-gray-700 uppercase text-xs font-bold border-b">
                       <tr>
-                        <th className="p-3 w-40">Data e Hora</th>
-                        <th className="p-3 w-48">Período/Pagamento</th>
+                        <th className="p-3">Data e Hora</th>
                         <th className="p-3">Detalhes</th>
-                        <th className="p-3 text-right w-40">Despesa Total</th>
-                        <th className="p-3 text-center w-32">Ações</th>
+                        <th className="p-3 text-right">Despesa Total</th>
+                        <th className="p-3 text-center">Ações</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {historico.map((log) => (
                         <tr key={log.id} className="bg-white hover:bg-gray-50">
                           <td className="p-3 text-gray-500 font-mono text-xs">{log.dataHora}</td>
-                          <td className="p-3 font-semibold text-gray-800 text-xs">{log.tipo}</td>
                           <td className="p-3 text-gray-600 text-xs">{log.detalhes}</td>
-                          <td className="p-3 text-right font-bold text-green-700 whitespace-nowrap">R$ {formatMoney(log.valorTotal)}</td>
+                          <td className="p-3 text-right font-bold text-green-700">R$ {formatMoney(log.valorTotal)}</td>
                           <td className="p-3 text-center">
-                            <button onClick={() => restaurarHistorico(log)} className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-xs font-bold transition-colors">
+                            <button onClick={() => restaurarHistorico(log)} className="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-xs font-bold">
                               Restaurar
                             </button>
                           </td>
