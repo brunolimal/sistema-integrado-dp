@@ -1,11 +1,6 @@
-// Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
+import { getFirestore } from "firebase/firestore"; // Importação do banco necessária
 
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
   apiKey: "AIzaSyBhvYEI_L9AX8Av8pQAa0UgCUDGHHb66Rs",
   authDomain: "sistema-dp-daab7.firebaseapp.com",
@@ -16,6 +11,8 @@ const firebaseConfig = {
   measurementId: "G-GNN6992B4Z"
 };
 
-// Initialize Firebase
+// Inicializa o Firebase
 const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
+
+// EXPORTAÇÃO DO BANCO (O que estava faltando para o deploy funcionar)
+export const db = getFirestore(app);
