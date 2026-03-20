@@ -27,6 +27,8 @@ const CurrencyInput = ({ value, onChange, className, placeholder }) => {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('colaboradores');
+  const [isReady, setIsReady] = useState(false);
+  const [isLoading, setIsLoading] = useState(true); // Novo: Controle de carregamento inicial
   
   // ================= ESTADOS SINCRONIZADOS COM FIREBASE =================
   const [colaboradores, setColaboradores] = useState([]);
@@ -40,21 +42,36 @@ export default function App() {
   const [beneficiosData, setBeneficiosData] = useState([]);
   const [beneficiosOverrides, setBeneficiosOverrides] = useState({});
 
-  // Carregamento Inicial do Firebase
+  // Carregamento Inicial do Firebase com Proteção contra Tela Branca
   useEffect(() => {
     const fetchData = async () => {
+      if (!db) {
+        console.error("Banco de dados não inicializado.");
+        setIsLoading(false);
+        return;
+      }
+
       try {
+        // Carregar Colaboradores
         const colabSnap = await getDocs(collection(db, "colaboradores"));
-        setColaboradores(colabSnap.docs.map(doc => ({ ...doc.data(), id: doc.id })));
+        const colabList = colabSnap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+        setColaboradores(colabList);
         
+        // Carregar Histórico
         const histQuery = query(collection(db, "historico_dp"), orderBy("timestamp", "desc"));
         const histSnap = await getDocs(histQuery);
-        setHistorico(histSnap.docs.map(doc => ({ ...doc.data(), id: doc.id })));
+        const histList = histSnap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+        setHistorico(histList);
       } catch (e) {
         console.error("Erro ao carregar dados do Firebase:", e);
+      } finally {
+        setIsLoading(false);
       }
     };
-    if (isReady) fetchData();
+
+    if (isReady) {
+      fetchData();
+    }
   }, [isReady]);
 
   // ================= OUTROS ESTADOS E REFERÊNCIAS =================
@@ -65,7 +82,6 @@ export default function App() {
   const [espelhoFile, setEspelhoFile] = useState(null);
   const [isProcessingSalario, setIsProcessingSalario] = useState(false);
   const [diasUteisBase, setDiasUteisBase] = useState(0);
-  const [isReady, setIsReady] = useState(false);
   const [modalConfig, setModalConfig] = useState({ isOpen: false, title: '', message: '', type: 'alert', onConfirm: null });
 
   const showAlert = (title, message) => setModalConfig({ isOpen: true, title, message, type: 'alert', onConfirm: null });
@@ -77,20 +93,21 @@ export default function App() {
 
   useEffect(() => {
     const loadDependencies = async () => {
-      if (!window.XLSX) {
-        const s = document.createElement('script');
-        s.src = "https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js";
-        document.body.appendChild(s);
-        await new Promise(r => s.onload = r);
+      try {
+        if (!window.XLSX) {
+          const s = document.createElement('script');
+          s.src = "https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js";
+          document.body.appendChild(s);
+        }
+        if (!window.pdfjsLib) {
+          const s = document.createElement('script');
+          s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+          document.body.appendChild(s);
+        }
+        setIsReady(true);
+      } catch (err) {
+        console.error("Erro ao carregar scripts externos:", err);
       }
-      if (!window.pdfjsLib) {
-        const s = document.createElement('script');
-        s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
-        document.body.appendChild(s);
-        await new Promise(r => s.onload = r);
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-      }
-      setIsReady(true);
     };
     loadDependencies();
   }, []);
@@ -179,8 +196,20 @@ export default function App() {
   };
   const erpResumo = getERPData();
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <RotateCcw className="w-10 h-10 text-blue-600 animate-spin mx-auto mb-4" />
+          <p className="text-gray-500 font-bold">Iniciando sistema e conectando ao banco...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 p-6 font-sans pb-20 relative text-gray-900">
+      {/* Modal */}
       {modalConfig.isOpen && (
         <div className="fixed inset-0 bg-gray-900/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 border">
@@ -249,12 +278,14 @@ export default function App() {
                   <tr><th className="p-4">Data/Hora</th><th className="p-4">Tipo</th><th className="p-4 text-right">Valor Total</th></tr>
                 </thead>
                 <tbody>
-                  {historico.map(h => (
+                  {historico.length > 0 ? historico.map(h => (
                     <tr key={h.id} className="border-b">
                       <td className="p-4 font-mono">{h.dataHora}</td><td className="p-4 font-bold">{h.tipo}</td>
                       <td className="p-4 text-right font-black text-green-700">R$ {formatMoney(h.valorTotal)}</td>
                     </tr>
-                  ))}
+                  )) : (
+                    <tr><td colSpan="3" className="p-10 text-center text-gray-400">Nenhum fechamento salvo no histórico.</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -275,6 +306,33 @@ export default function App() {
                   </div>
                 ))}
              </div>
+          </div>
+        )}
+
+        {activeTab === 'beneficios' && (
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-xl border grid grid-cols-1 md:grid-cols-4 gap-4">
+               <input type="date" value={periodo.start} onChange={e => setPeriodo({...periodo, start: e.target.value})} className="border p-2 rounded"/>
+               <input type="date" value={periodo.end} onChange={e => setPeriodo({...periodo, end: e.target.value})} className="border p-2 rounded"/>
+               <input type="number" placeholder="Feriados" value={periodo.feriados} onChange={e => setPeriodo({...periodo, feriados: e.target.value})} className="border p-2 rounded"/>
+               <CurrencyInput placeholder="VR Diário" value={valorVRDiario} onChange={setValorVRDiario} className="border p-2 rounded bg-blue-50 font-bold"/>
+            </div>
+            <div className="bg-white p-6 rounded-xl border overflow-x-auto">
+               <div className="flex justify-between mb-4"><h2 className="font-bold">Lançamentos</h2><button onClick={carregarColaboradoresBeneficios} className="bg-blue-100 text-blue-700 px-4 py-2 rounded font-bold text-xs">Sincronizar com Base Nuvem</button></div>
+               <table className="w-full text-xs">
+                  <thead className="bg-gray-50"><tr><th className="p-3">Nome</th><th className="p-3 text-center">VT Dia</th><th className="p-3 text-center">Faltas</th><th className="p-3 text-right">Total Geral</th></tr></thead>
+                  <tbody>
+                    {calcBeneficios().map(c => (
+                      <tr key={c.matricula} className="border-b">
+                        <td className="p-3 font-bold">{c.nome}</td>
+                        <td className="p-3 text-center"><input type="number" value={beneficiosOverrides[c.matricula]?.valorVT || ''} onChange={e => updateOverride(c.matricula, 'valorVT', e.target.value)} className="w-16 border rounded text-center text-blue-600 font-bold"/></td>
+                        <td className="p-3 text-center"><input type="number" value={beneficiosOverrides[c.matricula]?.ausencias || ''} onChange={e => updateOverride(c.matricula, 'ausencias', e.target.value)} className="w-12 border rounded text-center"/></td>
+                        <td className="p-3 text-right font-black text-green-700">R$ {formatMoney(c.totalGeral)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+               </table>
+            </div>
           </div>
         )}
       </div>
