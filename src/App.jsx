@@ -439,7 +439,7 @@ export default function App() {
       
       return [
         item.matricula, 
-        item.nome.substring(0, 22), // Limitando o tamanho do nome para caber na folha
+        item.nome.substring(0, 22),
         formatMoney(item.valorVT),
         item.ausencias > 0 ? `-${item.ausencias}` : '-', 
         item.descontoVT > 0 ? `-${item.descontoVT}` : '-',
@@ -492,6 +492,54 @@ export default function App() {
     const wb = window.XLSX.utils.book_new();
     window.XLSX.utils.book_append_sheet(wb, ws, "Pagamentos VT");
     window.XLSX.writeFile(wb, `Arquivo_Itau_VT_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  // ================= NOVA FUNÇÃO: EXPORTAR ARQUIVO SOLIDES VR =================
+  const exportVRSolidesFile = () => {
+    const data = calcBeneficios();
+    const vrData = [];
+
+    data.forEach(item => {
+      if (item.totalVRLiquido > 0) {
+        // Remove formatação do CPF, deixando apenas números
+        const cpfLimpo = item.cpf ? String(item.cpf).replace(/[^\d]/g, '') : '';
+        
+        vrData.push([
+          cpfLimpo,             // CPF
+          '',                   // Alimentação (vazio)
+          '',                   // Cultura (vazio)
+          '',                   // Home Office (vazio)
+          '',                   // Mobilidade (vazio)
+          '',                   // Refeição (vazio)
+          item.totalVRLiquido,  // Saldo Livre (valor do VR)
+          ''                    // Saúde (vazio)
+        ]);
+      }
+    });
+
+    if (vrData.length === 0) return showAlert("Atenção", "Não há valores de VR a serem pagos.");
+
+    // Adiciona o cabeçalho conforme especificado
+    const headers = ['CPF', 'Alimentação', 'Cultura', 'Home Office', 'Mobilidade', 'Refeição', 'Saldo Livre', 'Saúde'];
+    const wsData = [headers, ...vrData];
+
+    const ws = window.XLSX.utils.aoa_to_sheet(wsData);
+    
+    // Ajusta a largura das colunas para melhor visualização
+    ws['!cols'] = [
+      { wch: 15 },  // CPF
+      { wch: 12 },  // Alimentação
+      { wch: 10 },  // Cultura
+      { wch: 12 },  // Home Office
+      { wch: 12 },  // Mobilidade
+      { wch: 10 },  // Refeição
+      { wch: 12 },  // Saldo Livre
+      { wch: 10 }   // Saúde
+    ];
+
+    const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, "Solides VR");
+    window.XLSX.writeFile(wb, `Arquivo_Solides_VR_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   const generateReceiptsPDF = () => {
@@ -899,12 +947,13 @@ export default function App() {
                     <button onClick={limparMesBeneficios} className="ml-4 text-xs font-normal text-red-500 hover:underline flex items-center"><RotateCcw className="w-3 h-3 mr-1"/> Limpar Dados</button>
                   )}
                 </h2>
-                <div className="flex space-x-2">
+                <div className="flex flex-wrap gap-2">
                   <button onClick={carregarColaboradoresBeneficios} className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200">Carregar Base de Colaboradores</button>
                   {beneficiosData.length > 0 && (
                     <>
                       <button onClick={exportBeneficiosBasePDF} className="px-3 py-2 bg-gray-600 text-white text-sm rounded-lg hover:bg-gray-700 flex items-center space-x-1"><FileText className="w-4 h-4" /><span>Relatório em PDF</span></button>
                       <button onClick={exportVTBankFile} className="px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 flex items-center space-x-1"><Download className="w-4 h-4" /><span>Arquivo Itaú VT</span></button>
+                      <button onClick={exportVRSolidesFile} className="px-3 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 flex items-center space-x-1"><Download className="w-4 h-4" /><span>Arquivo Solides VR</span></button>
                       <button onClick={generateReceiptsPDF} className="px-3 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 flex items-center space-x-1"><FileText className="w-4 h-4" /><span>Recibos Indiv.</span></button>
                     </>
                   )}
